@@ -87,7 +87,6 @@ These parameters allow you to configure the Wyoming ONNX ASR server. You can pas
 To run this as a persistent background service that starts with your machine:
 
 ```bash
-chmod +x script/install-service
 ./script/install-service
 ```
 

@@ -52,6 +52,7 @@ else
 fi
 
 chmod +x "$SCRIPT_DIR/run" 2>/dev/null || true
+chmod +x "$SCRIPT_DIR/install-service" 2>/dev/null || true
 
 # 5. Finalize
 echo "✅ Setup complete! Run with ./script/run"
