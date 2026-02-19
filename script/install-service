@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+set -e
+
+SERVICE_NAME="wyoming-onnx-asr"
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+
+# Detect the actual user even if run with sudo
+REAL_USER=${SUDO_USER:-$(logname 2>/dev/null || echo $USER)}
+REAL_GROUP=$(id -gn "$REAL_USER")
+
+echo "🛠 Installing $SERVICE_NAME for user: $REAL_USER"
+
+sudo bash -c "cat > /etc/systemd/system/$SERVICE_NAME.service" <<EOF
+[Unit]
+Description=Wyoming ONNX ASR Server
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=$REAL_USER
+Group=$REAL_GROUP
+WorkingDirectory=$PROJECT_ROOT
+
+# Ensure GPU libraries are visible to the service
+Environment="LD_LIBRARY_PATH=/usr/local/cuda/lib64"
+Environment="PYTHONUNBUFFERED=1"
+
+# To use a custom model, append '--model <ID>' to the ExecStart line below
+ExecStart=$PROJECT_ROOT/script/run
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# Set permissions and refresh systemd
+sudo chmod 644 "/etc/systemd/system/$SERVICE_NAME.service"
+sudo systemctl daemon-reload
+sudo systemctl enable "$SERVICE_NAME"
+sudo systemctl restart "$SERVICE_NAME"
+
+echo "-------------------------------------------------------"
+echo "✅ $SERVICE_NAME installed and started!"
+echo "Check status: sudo systemctl status $SERVICE_NAME"
+echo "View logs:    journalctl -u $SERVICE_NAME -f"
+echo "-------------------------------------------------------"

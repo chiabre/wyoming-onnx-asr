@@ -1,0 +1,4 @@
+wyoming==1.6.0
+numpy>=1.22.4
+onnx-asr[gpu,hub]>=0.10.2
+onnxruntime-gpu>=1.19.0

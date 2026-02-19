@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+VENV_PYTHON="$PROJECT_ROOT/.venv/bin/python3"
+
+# Safety Check
+if [ ! -x "$VENV_PYTHON" ]; then
+    echo "❌ Error: Virtual environment not found. Run setup first."
+    exit 1
+fi
+
+# FIX: Stop ONNX from trying to set CPU affinity (pthread errors)
+export OMP_NUM_THREADS=1
+export MKL_NUM_THREADS=1
+export HF_HUB_DISABLE_SYMLINKS=1
+
+echo "🚀 Starting Wyoming ONNX ASR..."
+
+cd "$PROJECT_ROOT"
+exec "$VENV_PYTHON" "wyoming_onnx_asr.py" "$@"
