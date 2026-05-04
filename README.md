@@ -117,7 +117,7 @@ To run this as a persistent background service that starts with your machine:
 To change the model:
 
 ```bash
-sudo nano /etc/systemd/system/wyoming-onnx-asr.service
+nano /etc/systemd/system/wyoming-onnx-asr.service
 ```
 
 Update:
@@ -127,8 +127,8 @@ Update:
 ```
 Then:
 ```bash
-sudo systemctl daemon-reload
-sudo systemctl restart wyoming-onnx-asr
+systemctl daemon-reload
+systemctl restart wyoming-onnx-asr
 ```
 
 ## 🔧 Service Management
