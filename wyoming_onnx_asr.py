@@ -36,7 +36,9 @@ _LOGGER = logging.getLogger("wyoming_onnx")
 MAX_AUDIO_BYTES = 10 * 1024 * 1024
 EXPECTED_SAMPLE_RATE = 16000
 
-# --- MODEL REGISTRY (UNCHANGED - FULL RESTORE) ---
+# ==========================================================
+#                  FULL MODEL REGISTRY (RESTORED)
+# ==========================================================
 MODEL_REGISTRY = {
     "istupakov/parakeet-tdt-0.6b-v3-onnx": {
         "name": "Parakeet TDT 0.6B V3",
@@ -67,7 +69,9 @@ MODEL_REGISTRY = {
     }
 }
 
-# --- MODEL ALIASES (UNCHANGED) ---
+# ==========================================================
+#                   MODEL ALIASES (UNCHANGED)
+# ==========================================================
 MODEL_ALIASES = {
     "parakeet-v3": "istupakov/parakeet-tdt-0.6b-v3-onnx",
     "parakeet-v2": "istupakov/parakeet-tdt-0.6b-v2-onnx",
@@ -79,27 +83,37 @@ def resolve_model(model_arg: str) -> str:
     return MODEL_ALIASES.get(model_arg, model_arg)
 
 
-# --- FIXED RESULT HANDLING (IMPORTANT) ---
+# ==========================================================
+#            SAFE TEXT EXTRACTION (GENERATOR FIX)
+# ==========================================================
 def extract_text(results):
     if results is None:
         return ""
 
-    if hasattr(results, "__iter__") and not isinstance(results, (str, bytes)):
-        segs = list(results)
-        return " ".join(
-            getattr(s, "text", str(s)) for s in segs
-        ).strip()
+    try:
+        if hasattr(results, "__iter__") and not isinstance(results, (str, bytes)):
+            segs = list(results)
+            if not segs:
+                return ""
 
-    if hasattr(results, "text"):
-        return results.text.strip()
+            return " ".join(
+                getattr(s, "text", str(s)) for s in segs
+            ).strip()
 
-    return str(results).strip()
+        if hasattr(results, "text"):
+            return results.text.strip()
+
+        return str(results).strip()
+
+    except Exception:
+        return ""
 
 
 # ==========================================================
-#                   STREAMING ASR HANDLER
+#                     STREAMING HANDLER
 # ==========================================================
 class OnnxAsrEventHandler(AsyncEventHandler):
+
     def __init__(self, model, reader, writer, model_id, debug=False, stream_debug=False):
         super().__init__(reader, writer)
         self.model = model
@@ -109,21 +123,21 @@ class OnnxAsrEventHandler(AsyncEventHandler):
         self.stream_debug = stream_debug
 
         self.audio_data = bytearray()
-        self.sample_rate = None
+        self.sample_rate = EXPECTED_SAMPLE_RATE
 
-        # streaming state
         self.chunk_count = 0
-        self.last_partial = 0
         self.partial_text = ""
 
-    # ---------------- STREAM INFERENCE ----------------
+    # ---------------- INFERENCE ----------------
     def run_inference(self, audio_array):
+        if audio_array is None or len(audio_array) == 0:
+            return None
         return self.model.recognize(audio_array)
 
     # ---------------- EVENTS ----------------
     async def handle_event(self, event: Event) -> bool:
 
-        # ---------- DESCRIBE ----------
+        # -------- DESCRIBE --------
         if event.type == "describe":
             meta = MODEL_REGISTRY.get(self.model_id, {
                 "name": self.model_id,
@@ -133,7 +147,10 @@ class OnnxAsrEventHandler(AsyncEventHandler):
             model_info = AsrModel(
                 name=meta["name"],
                 languages=meta["languages"],
-                attribution=Attribution(name=meta.get("attribution", ""), url=meta.get("url", "")),
+                attribution=Attribution(
+                    name=meta.get("attribution", ""),
+                    url=meta.get("url", "")
+                ),
                 installed=True,
                 description=meta.get("description", ""),
                 version=meta.get("version", "1.0")
@@ -141,7 +158,7 @@ class OnnxAsrEventHandler(AsyncEventHandler):
 
             info = Info(asr=[AsrProgram(
                 name="onnx-asr",
-                description="Streaming ONNX ASR",
+                description="ONNX Streaming ASR",
                 attribution=Attribution(name="istupakov", url=""),
                 installed=True,
                 version="0.12.0",
@@ -151,17 +168,24 @@ class OnnxAsrEventHandler(AsyncEventHandler):
             await self.write_event(info.event())
             return True
 
-        # ---------- AUDIO START ----------
+        # -------- AUDIO START --------
         elif AudioStart.is_type(event.type):
+
             self.audio_data.clear()
             self.chunk_count = 0
             self.partial_text = ""
 
-            if self.stream_debug:
-                _LOGGER.info("[STREAM] START")
+            incoming_rate = getattr(event, "rate", None)
+            self.sample_rate = incoming_rate or EXPECTED_SAMPLE_RATE
 
-        # ---------- AUDIO CHUNK ----------
+            if self.stream_debug:
+                _LOGGER.info("[STREAM] START rate=%s", self.sample_rate)
+
+            return True
+
+        # -------- AUDIO CHUNK --------
         elif AudioChunk.is_type(event.type):
+
             chunk = AudioChunk.from_event(event)
 
             self.chunk_count += 1
@@ -172,12 +196,12 @@ class OnnxAsrEventHandler(AsyncEventHandler):
                 self.audio_data.clear()
 
             if self.stream_debug:
-                _LOGGER.info("[STREAM] chunk=%d bytes buffer=%d chunks",
+                _LOGGER.info("[STREAM] chunk=%d bytes total_chunks=%d",
                              len(chunk.audio), self.chunk_count)
 
             return True
 
-        # ---------- AUDIO STOP ----------
+        # -------- AUDIO STOP --------
         elif AudioStop.is_type(event.type):
 
             if not self.audio_data:
@@ -189,22 +213,26 @@ class OnnxAsrEventHandler(AsyncEventHandler):
                 .astype(np.float32) / 32768.0
             )
 
-            duration = len(audio_array) / EXPECTED_SAMPLE_RATE
+            duration = len(audio_array) / self.sample_rate
 
-            _LOGGER.info("[STREAM] FINAL buffer %.2fs (%d chunks)",
-                         duration, self.chunk_count)
+            _LOGGER.info(
+                "[STREAM] FINAL buffer=%.2fs chunks=%d rate=%s",
+                duration,
+                self.chunk_count,
+                self.sample_rate
+            )
 
             try:
                 t0 = time.perf_counter()
 
                 results = self.run_inference(audio_array)
 
-                if self.debug:
-                    _LOGGER.debug("Raw result type: %s", type(results))
+                t1 = time.perf_counter()
 
                 text = extract_text(results)
 
-                t1 = time.perf_counter()
+                if self.debug:
+                    _LOGGER.debug("Raw result type=%s", type(results))
 
                 if self.stream_debug:
                     _LOGGER.info("[ASR FINAL] %s", text)
@@ -213,7 +241,7 @@ class OnnxAsrEventHandler(AsyncEventHandler):
                 await self.write_event(Transcript(text=text).event())
 
             except Exception:
-                _LOGGER.exception("[STREAM] inference failed")
+                _LOGGER.exception("[STREAM] inference failure")
                 await self.write_event(Transcript(text="").event())
 
             finally:
@@ -223,7 +251,7 @@ class OnnxAsrEventHandler(AsyncEventHandler):
 
 
 # ==========================================================
-#                           MAIN
+#                          MAIN
 # ==========================================================
 async def main():
     parser = argparse.ArgumentParser()
@@ -245,7 +273,6 @@ async def main():
 
     model_id = resolve_model(args.model)
 
-    # --- SESSION OPTIONS (UNCHANGED STRUCTURE) ---
     sess_options = ort.SessionOptions()
     sess_options.log_severity_level = ORT_CONFIG["log_level"]
     sess_options.intra_op_num_threads = args.threads or ORT_CONFIG["num_threads"]
