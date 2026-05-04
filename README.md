@@ -141,7 +141,7 @@ journalctl -u wyoming-onnx-asr -f
 - Restart:
   
 ```bash
-sudo systemctl restart wyoming-onnx-asr
+systemctl restart wyoming-onnx-asr
 ```
 
 ## 🧠 Notes
