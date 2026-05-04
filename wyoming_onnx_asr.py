@@ -3,7 +3,7 @@ import os
 import sys
 
 # ==========================================================
-#                ONNX RUNTIME CONFIG (UNCHANGED)
+# ONNX RUNTIME CONFIG
 # ==========================================================
 ORT_CONFIG = {
     "log_level": 3,
@@ -32,18 +32,17 @@ from wyoming.info import AsrModel, AsrProgram, Info, Attribution
 from wyoming.server import AsyncEventHandler, AsyncServer
 
 # ==========================================================
-#                LOGGING (CLEAN SEPARATION)
+# LOGGING ARCHITECTURE (FIXED + STABLE)
 # ==========================================================
-
-LOG = logging.getLogger("wyoming_asr")
-STREAM_LOG = logging.getLogger("wyoming_asr.stream")
-DEBUG_LOG = logging.getLogger("wyoming_asr.debug")
+LOG = logging.getLogger("asr")
+STREAM_LOG = logging.getLogger("asr.stream")
+DEBUG_LOG = logging.getLogger("asr.debug")
 
 MAX_AUDIO_BYTES = 10 * 1024 * 1024
 EXPECTED_SAMPLE_RATE = 16000
 
 # ==========================================================
-#                    MODEL REGISTRY (FULL)
+# MODEL REGISTRY (FULL RESTORE - NO LOSS)
 # ==========================================================
 MODEL_REGISTRY = {
     "istupakov/parakeet-tdt-0.6b-v3-onnx": {
@@ -81,13 +80,11 @@ MODEL_ALIASES = {
     "canary": "istupakov/canary-1b-v2-onnx"
 }
 
-
 def resolve_model(m):
     return MODEL_ALIASES.get(m, m)
 
-
 # ==========================================================
-#                    TEXT EXTRACTION (SAFE)
+# TEXT EXTRACTION (SAFE FOR GENERATOR OUTPUT)
 # ==========================================================
 def extract_text(results):
     if results is None:
@@ -106,9 +103,8 @@ def extract_text(results):
     except Exception:
         return ""
 
-
 # ==========================================================
-#                    EVENT HANDLER
+# EVENT HANDLER
 # ==========================================================
 class OnnxAsrEventHandler(AsyncEventHandler):
 
@@ -125,7 +121,6 @@ class OnnxAsrEventHandler(AsyncEventHandler):
         self.sample_rate = EXPECTED_SAMPLE_RATE
         self.chunk_count = 0
 
-    # ---------------- INFERENCE ----------------
     def run_inference(self, audio):
         if audio is None or len(audio) == 0:
             return None
@@ -136,14 +131,11 @@ class OnnxAsrEventHandler(AsyncEventHandler):
 
         # ================= DESCRIBE =================
         if event.type == "describe":
-            meta = MODEL_REGISTRY.get(self.model_id, {
-                "name": self.model_id,
-                "languages": ["en"]
-            })
+            meta = MODEL_REGISTRY.get(self.model_id, {"name": self.model_id})
 
             model_info = AsrModel(
                 name=meta["name"],
-                languages=meta["languages"],
+                languages=meta.get("languages", ["en"]),
                 attribution=Attribution(
                     name=meta.get("attribution", ""),
                     url=meta.get("url", "")
@@ -155,8 +147,8 @@ class OnnxAsrEventHandler(AsyncEventHandler):
 
             info = Info(asr=[AsrProgram(
                 name="onnx-asr",
-                description="Streaming ONNX ASR",
-                attribution=Attribution(name="istupakov", url=""),
+                description="Streaming ASR (ONNX)",
+                attribution=Attribution(name="system", url=""),
                 installed=True,
                 version="0.12.0",
                 models=[model_info]
@@ -174,7 +166,7 @@ class OnnxAsrEventHandler(AsyncEventHandler):
             incoming_rate = getattr(event, "rate", None)
             self.sample_rate = incoming_rate or EXPECTED_SAMPLE_RATE
 
-            STREAM_LOG.info("START rate=%s", self.sample_rate)
+            STREAM_LOG.info("AUDIO START rate=%s", self.sample_rate)
 
             return True
 
@@ -210,8 +202,7 @@ class OnnxAsrEventHandler(AsyncEventHandler):
 
             duration = len(audio) / self.sample_rate
 
-            LOG.info("ASR processing segment: %.2fs (%d chunks)",
-                     duration, self.chunk_count)
+            LOG.info("PROCESSING | %.2fs | chunks=%d", duration, self.chunk_count)
 
             try:
                 t0 = time.perf_counter()
@@ -222,9 +213,10 @@ class OnnxAsrEventHandler(AsyncEventHandler):
 
                 text = extract_text(results)
 
-                # ---------- CLEAN OUTPUT ----------
-                LOG.info("ASR RESULT | %.2fs | %s | %.3fs",
-                         duration, text, t1 - t0)
+                LOG.info(
+                    "ASR RESULT | %.2fs | %s | %.3fs",
+                    duration, text, t1 - t0
+                )
 
                 if self.debug:
                     DEBUG_LOG.debug("raw type=%s", type(results))
@@ -240,9 +232,8 @@ class OnnxAsrEventHandler(AsyncEventHandler):
 
         return True
 
-
 # ==========================================================
-#                         MAIN
+# MAIN
 # ==========================================================
 async def main():
 
@@ -258,18 +249,28 @@ async def main():
 
     args = parser.parse_args()
 
-    # ---------------- LOGGING SETUP ----------------
-    logging.basicConfig(
-        level=logging.DEBUG if args.debug else logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(message)s"
-    )
+    # ======================================================
+    # CLEAN LOGGING SETUP (FIXES MISSING "LISTENING ON")
+    # ======================================================
+    root = logging.getLogger()
+    root.setLevel(logging.DEBUG if args.debug else logging.INFO)
 
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
+    handler.setFormatter(formatter)
+
+    if not root.handlers:
+        root.addHandler(handler)
+
+    LOG.setLevel(logging.INFO)
     STREAM_LOG.setLevel(logging.DEBUG if args.stream_debug else logging.INFO)
     DEBUG_LOG.setLevel(logging.DEBUG)
 
     model_id = resolve_model(args.model)
 
-    # ---------------- ORT SESSION ----------------
+    # ======================================================
+    # ONNX SESSION
+    # ======================================================
     sess_options = ort.SessionOptions()
     sess_options.log_severity_level = ORT_CONFIG["log_level"]
     sess_options.intra_op_num_threads = args.threads or ORT_CONFIG["num_threads"]
@@ -299,6 +300,7 @@ async def main():
             model = model.with_vad(onnx_asr.load_vad("silero"))
 
         LOG.info("Server ready (GPU=%s)", not args.cpu)
+        LOG.info("Listening on: %s", args.uri)
 
     except Exception as e:
         LOG.error("Model load failed: %s", e)
