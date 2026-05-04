@@ -1,23 +1,23 @@
 # 🎙️ Wyoming ONNX ASR (GPU/CPU)
 
-[Wyoming Protocol](https://github.com/rhasspy/wyoming) server for high-speed local Speech-to-Text using [onnx-asr](https://github.com/istupakov/onnx-asr) optimized for Home Assistant voice pipelines.
+[Wyoming Protocol](https://github.com/rhasspy/wyoming) server for high-speed local Speech-to-Text using [onnx-asr](https://github.com/istupakov/onnx-asr), optimized for Home Assistant voice pipelines.
+
+---
 
 ## ⚡ Hardware Selection
 
-This repository is hardware-intelligent and distro-aware. During setup, it detects your OS (Debian/Ubuntu) and GPU status to automate the CUDA 12.6 & cuDNN 9.x installation.
+This repository is hardware-intelligent and distro-aware. During setup, it detects your OS (Debian/Ubuntu) and GPU status to automate CUDA & cuDNN installation.
 
 | Feature | 🟢 GPU Mode (Recommended) | 🔵 CPU Mode |
 | :--- | :--- | :--- |
-| **Performance** | Instant (sub-100ms response) | Fast (~500ms - 2s response) |
-| **Requirements** | NVIDIA GPU + Driver 550+ | Any modern x86_64 / ARM64 CPU |
+| **Performance** | Near real-time (<100–300ms) | Fast (~500ms – 2s) |
+| **Requirements** | NVIDIA GPU (CUDA) | Any modern CPU |
 
 ---
 
 ## ⚙️ Installation
 
 ### 1. Setup the Environment
-The setup script prepares your system by installing dependencies and configuring the environment. 
-*Note: Models are downloaded automatically on the first run of the service.*
 
 ```bash
 git clone https://github.com/chiabre/wyoming-onnx-asr.git
@@ -27,71 +27,126 @@ chmod +x script/setup
 ```
 
 > [!IMPORTANT]
-> **GPU Users:** After the setup script finishes, you **must** run the command below (or restart your terminal) to activate the new CUDA paths in your current session:
+> **GPU Users:** reload your environment after setup:
+> 
 > ```bash
 > source ~/.bashrc
 > ```
 
-## 2. Choose Your Model
+## 🧠 Model Selection
 The default model is `istupakov/parakeet-tdt-0.6b-v2-onnx`. To switch models, use the `--model` parameter with the "Model Repo ID" from the table below.
 
 ### ⚙️ Supported Models & Performance
 
-This repository supports 6 optimized ONNX models. Use the table below to select the `MODEL_ID` that matches your hardware and accuracy needs.
+You can use short aliases instead of full Hugging Face IDs.
 
-| Recommendation | Model Repo ID | Accuracy (WER) | Speed (RTFx) | RAM | Released | Description |
-|----------------|---------------|----------------|--------------|-----|----------|-------------|
-| 🏆 **Default** | `istupakov/parakeet-tdt-0.6b-v2-onnx` | ~6% | Very High | ~2GB | May 2025 |  Best for English. Ultra-fast TDT architecture. |
-| 🌍 **Multi** | `istupakov/parakeet-tdt-0.6b-v3-onnx` | ~7% | Very High | ~2GB | Aug 2025 | Best Multilingual. Optimized for 25 European languages.|
-| 🧠 **Robust** | `istupakov/canary-1b-v2-onnx` | ~6.5% | Medium | ~8GB | Aug 2025 | Highly robust; requires significant RAM/VRAM. |
-| 🌍 **Universal** | `onnx-community/whisper-large-v3-turbo` | ~7–10% | High | ~6GB | Oct 2024 | Broadest coverage (99+ languages). Autoregressive decoding. |
-| ⚡ **Edge** | `istupakov/canary-180m-flash-onnx` | ~9% | High | ~1GB | Oct 2024 | Lowest latency for RPi or low-resource hardware. |
-| ⚖️ **Balanced** | `istupakov/whisper-base-onnx` | ~12% | Moderate | ~500MB | May 2024 | Stable general-purpose fallback. |
+| Alias              | Model                                 | Best For               | Notes                       |
+| ------------------ | ------------------------------------- | ---------------------- | --------------------------- |
+| 🏆 `parakeet-v3`   | `istupakov/parakeet-tdt-0.6b-v3-onnx` | Default / multilingual | Fast + accurate             |
+| 🇺🇸 `parakeet-v2` | `istupakov/parakeet-tdt-0.6b-v2-onnx` | English-only           | Slightly better EN accuracy |
+| 🧠 `canary`        | `istupakov/canary-1b-v2-onnx`         | Accuracy-first         | Slower, higher RAM          |
 
-> [!WARNING]
-> **Memory Usage:** The `Robust` (Canary 1B) model requires a minimum of **8GB RAM**. If your service crashes with a "Killed" message, switch to a `Default` or `Edge` model.
 
 ## 🚀 Running the Service
 
-### Manual Execution
-The run script uses the virtual environment and defaults to the model defined in `script/run`
+### Basic Usage
 
 ```bash
-# 1. Standard Startup (Recommended)
 ./script/run
-
-# 2. Forced CPU Mode
-./script/run --cpu
-
-# 3. Development/Troubleshooting
-./script/run --no-vad --debug
-
-# 4. Custom Model or Port
-./script/run --uri tcp://0.0.0.0:10305 --model istupakov/parakeet-tdt-0.6b-v3-onnx
 ```
 
-#### ⚙️ Configuration Options
+### Examples
+
+```bash
+# Default (recommended)
+./script/run --model parakeet-v3
+
+# English optimized
+./script/run --model parakeet-v2
+
+# Accuracy-focused
+./script/run --model canary
+
+# Force CPU
+./script/run --cpu
+
+# Debug mode
+./script/run --debug
+
+# Custom port
+./script/run --uri tcp://0.0.0.0:10305
+```
+
+## ⚙️ Configuration Options
 
 These parameters allow you to configure the Wyoming ONNX ASR server. You can pass them as command-line arguments when starting the service.
 
-| Parameter | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| **`--model`** | Optional | `istupakov/parakeet-tdt-0.6b-v2-onnx` | The Hugging Face model repo ID |
-| **`--model-dir`** | Optional | `data/models` | The parent directory where your model folders are stored. |
-| **`--uri`** | Optional | `tcp://0.0.0.0:10300` | The address and port for the Wyoming server to listen on. |
-| **`--no-vad`** | Flag | `False` | **Disable** Silero VAD. VAD is ON by default to filter background noise. |
-| **`--cpu`** | Flag | `False` | Force CPU inference even if an NVIDIA GPU is detected. |
-| **`--debug`** | Flag | `False` | Enable verbose logging for troubleshooting. |
+| Parameter         | Type     | Default               | Description                    |
+| :---------------- | :------- | :-------------------- | :----------------------------- |
+| `--model`         | Optional | `parakeet-v3`         | Model alias or full HF repo ID |
+| `--model-dir`     | Optional | `data/models`         | Model storage directory        |
+| `--uri`           | Optional | `tcp://0.0.0.0:10300` | Wyoming server address         |
+| `--cpu`           | Flag     | `False`               | Force CPU inference            |
+| `--debug`         | Flag     | `False`               | Enable verbose logging         |
+| `--threads`       | Optional | `1`                   | Override ONNX thread count     |
+| `--ort-log-level` | Optional | `3`                   | ONNX logging level (0–4)       |
 
-### Systemd Deployment
+## 🧠 ONNX Runtime Tuning
+This version uses a centralized runtime configuration for:
+- Threading
+- Logging
+- Execution mode
+
+### Examples
+
+```bash
+# Increase CPU parallelism
+./script/run --threads 2
+
+# Silence ONNX logs
+./script/run --ort-log-level 4
+```
+
+## 🧩 Systemd Deployment
 To run this as a persistent background service that starts with your machine:
 
 ```bash
 ./script/install-service
 ```
 
-To change the model after installation, edit `/etc/systemd/system/wyoming-onnx-asr.service` add  `--model YOUR_MODEL` in the `ExecStart` line, then run `sudo systemctl daemon-reload && sudo systemctl restart wyoming-onnx-asr`.
+To change the model:
 
-#### Manage the service:
-- Logs: `journalctl -u wyoming-onnx-asr -f`
-- Restart: `sudo systemctl restart wyoming-onnx-asr`
+```bash
+sudo nano /etc/systemd/system/wyoming-onnx-asr.service
+```
+
+Update:
+
+```bash
+--model parakeet-v3
+```
+Then:
+```bash
+sudo systemctl daemon-reload
+sudo systemctl restart wyoming-onnx-asr
+```
+
+## 🔧 Service Management
+- Logs:
+
+```bash
+  `journalctl -u wyoming-onnx-asr -f`
+```
+
+- Restart:
+  
+```bash
+- sudo systemctl restart wyoming-onnx-asr`
+```
+
+## 🧠 Notes
+
+- Use `parakeet-v3` for best overall performance
+- Use `parakeet-v2` for English-only setups
+- Use `canary` when accuracy matters more than latency
+- Lower thread count may help on low-power CPUs
