@@ -17,8 +17,6 @@ This repository is hardware-intelligent and distro-aware. During setup, it detec
 
 ## ⚙️ Installation
 
-### 1. Setup the Environment
-
 ```bash
 git clone https://github.com/chiabre/wyoming-onnx-asr.git
 cd wyoming-onnx-asr
@@ -33,6 +31,8 @@ chmod +x script/setup
 > source ~/.bashrc
 > ```
 
+---
+
 ## 🧠 Model Selection
 The default model is `istupakov/parakeet-tdt-0.6b-v2-onnx`. To switch models, use the `--model` parameter with the "Model Repo ID" from the table below.
 
@@ -46,6 +46,7 @@ You can use short aliases instead of full Hugging Face IDs.
 | 🇺🇸 `parakeet-v2` | `istupakov/parakeet-tdt-0.6b-v2-onnx` | English-only           | Slightly better EN accuracy |
 | 🧠 `canary`        | `istupakov/canary-1b-v2-onnx`         | Accuracy-first         | Slower, higher RAM          |
 
+---
 
 ## 🚀 Running the Service
 
@@ -77,6 +78,8 @@ You can use short aliases instead of full Hugging Face IDs.
 ./script/run --uri tcp://0.0.0.0:10305
 ```
 
+---
+
 ## ⚙️ Configuration Options
 
 These parameters allow you to configure the Wyoming ONNX ASR server. You can pass them as command-line arguments when starting the service.
@@ -90,6 +93,8 @@ These parameters allow you to configure the Wyoming ONNX ASR server. You can pas
 | `--debug`         | Flag     | `False`               | Enable verbose logging         |
 | `--threads`       | Optional | `1`                   | Override ONNX thread count     |
 | `--ort-log-level` | Optional | `3`                   | ONNX logging level (0–4)       |
+
+---
 
 ## 🧠 ONNX Runtime Tuning
 This version uses a centralized runtime configuration for:
@@ -106,6 +111,7 @@ This version uses a centralized runtime configuration for:
 # Silence ONNX logs
 ./script/run --ort-log-level 4
 ```
+---
 
 ## 🧩 Systemd Deployment
 To run this as a persistent background service that starts with your machine:
@@ -130,6 +136,7 @@ Then:
 systemctl daemon-reload
 systemctl restart wyoming-onnx-asr
 ```
+---
 
 ## 🔧 Service Management
 - Logs:
@@ -143,6 +150,7 @@ journalctl -u wyoming-onnx-asr -f
 ```bash
 systemctl restart wyoming-onnx-asr
 ```
+---
 
 ## 🧠 Notes
 
