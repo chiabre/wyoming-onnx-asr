@@ -160,7 +160,19 @@ class OnnxAsrEventHandler(AsyncEventHandler):
                 results = self.model.recognize(audio_array)
                 elapsed = time.perf_counter() - start
 
-                text = results.text if hasattr(results, "text") else str(results).strip()
+                # Handle generator / iterable results
+                if hasattr(results, "__iter__") and not isinstance(results, str):
+                    segments = list(results)
+                
+                    # Debug (optional)
+                    # _LOGGER.debug("Segments: %s", segments)
+                
+                    text = " ".join(
+                        seg.text if hasattr(seg, "text") else str(seg)
+                        for seg in segments
+                    ).strip()
+                else:
+                    text = results.text if hasattr(results, "text") else str(results).strip()
 
                 _LOGGER.info("Transcript: %s", text)
                 _LOGGER.info("Inference time: %.3fs", elapsed)
