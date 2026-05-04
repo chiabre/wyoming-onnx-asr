@@ -135,13 +135,13 @@ sudo systemctl restart wyoming-onnx-asr
 - Logs:
 
 ```bash
-  `journalctl -u wyoming-onnx-asr -f`
+journalctl -u wyoming-onnx-asr -f
 ```
 
 - Restart:
   
 ```bash
-- sudo systemctl restart wyoming-onnx-asr`
+sudo systemctl restart wyoming-onnx-asr
 ```
 
 ## 🧠 Notes
