@@ -11,12 +11,23 @@ if [ ! -x "$VENV_PYTHON" ]; then
     exit 1
 fi
 
-# FIX: Stop ONNX from trying to set CPU affinity (pthread errors)
+# --- ONNX / PERFORMANCE SAFETY FLAGS ---
 export OMP_NUM_THREADS=1
 export MKL_NUM_THREADS=1
+
+# --- ORT consistency with Python ORT_CONFIG ---
+export ORT_LOGGING_LEVEL=3
+export ORT_DISABLE_THREAD_AFFINITY=1
+export ORT_NUM_THREADS=1
+
+# --- CUDA stability ---
+export CUDA_VISIBLE_DEVICES=0
+
+# --- HuggingFace / filesystem stability ---
 export HF_HUB_DISABLE_SYMLINKS=1
 
 echo "🚀 Starting Wyoming ONNX ASR..."
+echo "📁 Project: $PROJECT_ROOT"
 
 cd "$PROJECT_ROOT"
-exec "$VENV_PYTHON" "wyoming_onnx_asr.py" "$@"
+exec "$VENV_PYTHON" wyoming_onnx_asr.py "$@"

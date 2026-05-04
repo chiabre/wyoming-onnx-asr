@@ -23,20 +23,36 @@ User=$REAL_USER
 Group=$REAL_GROUP
 WorkingDirectory=$PROJECT_ROOT
 
-# Ensure GPU libraries are visible to the service
-Environment="LD_LIBRARY_PATH=/usr/local/cuda/lib64"
-Environment="PYTHONUNBUFFERED=1"
+# --- GPU / CUDA visibility ---
+Environment="LD_LIBRARY_PATH=/usr/local/cuda/lib64:/usr/lib/x86_64-linux-gnu"
+Environment="CUDA_VISIBLE_DEVICES=0"
 
-# To use a custom model, append '--model <ID>' to the ExecStart line below
+# --- Python stability ---
+Environment="PYTHONUNBUFFERED=1"
+Environment="OMP_NUM_THREADS=1"
+
+# --- ONNX Runtime tuning (mirrors ORT_CONFIG defaults) ---
+Environment="ORT_LOGGING_LEVEL=3"
+Environment="ORT_DISABLE_THREAD_AFFINITY=1"
+Environment="ORT_NUM_THREADS=1"
+
+# --- OPTIONAL: override model here ---
+# Examples:
+# ExecStart=$PROJECT_ROOT/script/run --model parakeet-v3
+# ExecStart=$PROJECT_ROOT/script/run --model parakeet-v2
+# ExecStart=$PROJECT_ROOT/script/run --model canary
+
 ExecStart=$PROJECT_ROOT/script/run
+
 Restart=always
 RestartSec=5
+TimeoutStopSec=30
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-# Set permissions and refresh systemd
+# Permissions + reload
 sudo chmod 644 "/etc/systemd/system/$SERVICE_NAME.service"
 sudo systemctl daemon-reload
 sudo systemctl enable "$SERVICE_NAME"
