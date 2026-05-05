@@ -44,7 +44,6 @@ You can use short aliases instead of full Hugging Face IDs.
 | ------------------ | ------------------------------------- | ---------------------- | --------------------------- |
 | 🏆 `parakeet-v3`   | `istupakov/parakeet-tdt-0.6b-v3-onnx` | Default / multilingual | Fast + accurate             |
 | 🇺🇸 `parakeet-v2` | `istupakov/parakeet-tdt-0.6b-v2-onnx` | English-only           | Slightly better EN accuracy |
-| 🧠 `canary`        | `istupakov/canary-1b-v2-onnx`         | Accuracy-first         | Slower, higher RAM          |
 
 ---
 
@@ -64,9 +63,6 @@ You can use short aliases instead of full Hugging Face IDs.
 
 # English optimized
 ./script/run --model parakeet-v2
-
-# Accuracy-focused
-./script/run --model canary
 
 # Force CPU
 ./script/run --cpu
@@ -93,6 +89,7 @@ These parameters allow you to configure the Wyoming ONNX ASR server. You can pas
 | `--debug`         | Flag     | `False`               | Enable verbose logging         |
 | `--threads`       | Optional | `1`                   | Override ONNX thread count     |
 | `--ort-log-level` | Optional | `3`                   | ONNX logging level (0–4)       |
+| `--endpoint-ms`   | Optional | `500`               | Silence threshold (ms) for end-of-speech detection |
 
 ---
 
@@ -154,7 +151,23 @@ systemctl restart wyoming-onnx-asr
 
 ## 🧠 Notes
 
+### Model Selection
 - Use `parakeet-v3` for best overall performance
-- Use `parakeet-v2` for English-only setups
-- Use `canary` when accuracy matters more than latency
-- Lower thread count may help on low-power CPUs
+- Use `parakeet-v2` for English-only setups (fastest UX)
+
+### Home Assistant Optimization
+- Tune `--endpoint-ms` to reduce response latency:
+  - `300–500ms` → faster responses (recommended)
+  - `600–800ms` → more stable for noisy environments
+
+- Lower values = faster assistant response, but may cut speech early
+- Higher values = safer detection, but adds delay
+
+### Performance Tips
+- GPU strongly recommended for real-time performance
+- Keep `--threads` low (1–2) to avoid contention in LXC environments
+- Avoid running STT and LLM heavy workloads on the same GPU without testing latency
+
+### Pipeline Reality (Important)
+- Home Assistant voice pipelines are not fully streaming
+- End-of-speech detection (`--endpoint-ms`) has more impact than raw model speed
