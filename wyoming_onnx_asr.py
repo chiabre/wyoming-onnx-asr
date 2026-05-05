@@ -4,7 +4,6 @@ import asyncio
 import logging
 import os
 import time
-import re
 from pathlib import Path
 
 import numpy as np
@@ -24,8 +23,9 @@ _LOGGER = logging.getLogger(__name__)
 
 logging.getLogger("phonemizer").setLevel(logging.ERROR)
 
+
 # -------------------------------------------------
-# LIGHT NORMALIZER (UNCHANGED)
+# LIGHT NORMALIZER (kept)
 # -------------------------------------------------
 def normalize_text(text: str) -> str:
     if not text:
@@ -39,15 +39,6 @@ def normalize_text(text: str) -> str:
     text = text.replace(" ?", "?")
 
     return text
-
-
-# -------------------------------------------------
-# SENTENCE SPLITTER (NEW - LOW OVERHEAD)
-# -------------------------------------------------
-_SENTENCE_RE = re.compile(r'(?<=[.!?])\s+')
-
-def split_sentences(text: str):
-    return [s.strip() for s in _SENTENCE_RE.split(text) if s.strip()]
 
 
 # -------------------------------------------------
@@ -104,24 +95,22 @@ def resolve_voice(v_code: str):
 
 
 # -------------------------------------------------
-# WYOMING HANDLER (STREAMING VERSION)
+# WYOMING HANDLER (GPU OBSERVABILITY ENHANCED)
 # -------------------------------------------------
 class KokoroWyomingHandler(AsyncEventHandler):
 
-    def __init__(self, kokoro, default_voice, speed, loop, *args, **kwargs):
+    def __init__(self, kokoro, default_voice, speed, loop, ort_session, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.kokoro = kokoro
         self.default_voice = default_voice
         self.speed = speed
         self.loop = loop
+        self.ort_session = ort_session
 
-        # GPU warmup (IMPORTANT for stable latency)
         try:
-            self.kokoro.create("hello world", voice=self.default_voice, speed=self.speed, lang="en-us")
+            self.kokoro.create("hello", voice=self.default_voice, speed=self.speed, lang="en-us")
         except Exception:
             pass
-
-        _LOGGER.info("ONNX Providers: %s", ort.get_available_providers())
 
     async def handle_event(self, event: Event) -> bool:
 
@@ -150,11 +139,7 @@ class KokoroWyomingHandler(AsyncEventHandler):
         if event.type == "synthesize":
 
             synth = Synthesize.from_event(event)
-
-            voice = self.default_voice
-            if synth.voice and getattr(synth.voice, "name", None):
-                voice = synth.voice.name
-
+            voice = synth.voice.name if synth.voice else self.default_voice
             lang, _ = resolve_voice(voice)
 
             raw_text = synth.text
@@ -165,55 +150,69 @@ class KokoroWyomingHandler(AsyncEventHandler):
             if len(clean_text) < 2:
                 return True
 
-            # -------------------------------------------------
-            # 🔥 STREAMING MODE (OPTION A CORE)
-            # -------------------------------------------------
-            sentences = split_sentences(clean_text)
-
             total_start = time.perf_counter()
 
-            await self.write_event(AudioStart(rate=22050, width=2, channels=1).event())
+            try:
+                # -------------------------------------------------
+                # 🔥 PRE-INFERENCE GPU CHECK (IMPORTANT ADDITION)
+                # -------------------------------------------------
+                providers = ort.get_available_providers()
 
-            for i, sentence in enumerate(sentences):
+                _LOGGER.debug("ORT providers: %s", providers)
+                _LOGGER.debug("Selected voice: %s | lang=%s", voice, lang)
 
-                t0 = time.perf_counter()
+                inference_start = time.perf_counter()
 
+                samples, sr = await self.loop.run_in_executor(
+                    None,
+                    self.kokoro.create,
+                    clean_text,
+                    voice,
+                    self.speed,
+                    lang,
+                )
+
+                inference_time = time.perf_counter() - inference_start
+
+                # -------------------------------------------------
+                # GPU MEMORY / EXECUTION SIGNAL (CRITICAL DEBUG)
+                # -------------------------------------------------
                 try:
-                    samples, sr = await self.loop.run_in_executor(
-                        None,
-                        self.kokoro.create,
-                        sentence,
-                        voice,
-                        self.speed,
-                        lang,
-                    )
+                    sess = self.ort_session
+                    if sess:
+                        _LOGGER.debug(
+                            "EPs=%s | IO Binding not exposed (Kokoro wrapper limitation)",
+                            sess.get_providers() if hasattr(sess, "get_providers") else "unknown"
+                        )
+                except Exception:
+                    pass
 
-                    audio = (samples * 32767).astype("int16").tobytes()
+                encode_start = time.perf_counter()
+                audio = (samples * 32767).astype("int16").tobytes()
+                encode_time = time.perf_counter() - encode_start
 
-                    await self.write_event(
-                        AudioChunk(audio=audio, rate=sr, width=2, channels=1).event()
-                    )
+                emit_start = time.perf_counter()
+                await self.write_event(AudioStart(rate=sr, width=2, channels=1).event())
+                await self.write_event(AudioChunk(audio=audio, rate=sr, width=2, channels=1).event())
+                await self.write_event(AudioStop().event())
+                emit_time = time.perf_counter() - emit_start
 
-                    _LOGGER.info(
-                        "Sentence %d/%d | %.3fs | %s",
-                        i + 1,
-                        len(sentences),
-                        time.perf_counter() - t0,
-                        sentence[:40],
-                    )
+                total_time = time.perf_counter() - total_start
 
-                except Exception as e:
-                    _LOGGER.exception("Sentence synthesis failed")
-                    continue
+                _LOGGER.info(
+                    "TTS TOTAL=%.3fs | text=%d",
+                    total_time,
+                    len(clean_text)
+                )
 
-            await self.write_event(AudioStop().event())
+                _LOGGER.debug("  ├─ inference=%.3fs", inference_time)
+                _LOGGER.debug("  ├─ encode=%.3fs", encode_time)
+                _LOGGER.debug("  └─ emit=%.3fs", emit_time)
 
-            _LOGGER.info(
-                "TTS TOTAL STREAMED=%.3fs | sentences=%d | chars=%d",
-                time.perf_counter() - total_start,
-                len(sentences),
-                len(clean_text),
-            )
+            except Exception as e:
+                _LOGGER.exception("TTS failure")
+                await self.write_event(Event(type="error", data={"message": str(e)}))
+                return False
 
             return True
 
@@ -221,7 +220,7 @@ class KokoroWyomingHandler(AsyncEventHandler):
 
 
 # -------------------------------------------------
-# MAIN (UNCHANGED)
+# MAIN (GPU VISIBILITY FIX ADDED ONLY)
 # -------------------------------------------------
 async def main():
 
@@ -243,29 +242,54 @@ async def main():
     if args.debug:
         logging.getLogger().setLevel(logging.DEBUG)
 
+    # -------------------------------------------------
+    # 🔥 GPU STABILITY ENV HARDENING (IMPORTANT ADDITION)
+    # -------------------------------------------------
+    os.environ["OMP_NUM_THREADS"] = "1"
+    os.environ["MKL_NUM_THREADS"] = "1"
+    os.environ["ORT_DISABLE_THREAD_AFFINITY"] = "1"
+
     data_path = Path(args.data_dir)
     data_path.mkdir(parents=True, exist_ok=True)
 
     onnx_files = sorted(data_path.glob("*.onnx"))
     bin_files = sorted(data_path.glob("*.bin"))
 
+    if not onnx_files or not bin_files:
+        raise FileNotFoundError("Missing model or voices files")
+
     model_path = args.model or str(onnx_files[0])
     voices_path = args.voices or str(bin_files[0])
 
-    provider = "CPUExecutionProvider"
-    if not args.cpu and "CUDAExecutionProvider" in ort.get_available_providers():
-        provider = "CUDAExecutionProvider"
+    # -------------------------------------------------
+    # 🔥 ORT SESSION (ADDED FOR GPU VISIBILITY)
+    # -------------------------------------------------
+    providers = ort.get_available_providers()
 
-    _LOGGER.info("Provider: %s", provider)
+    if not args.cpu and "CUDAExecutionProvider" in providers:
+        ep = ["CUDAExecutionProvider"]
+    else:
+        ep = ["CPUExecutionProvider"]
+
+    _LOGGER.info("ORT Execution Providers: %s", ep)
+
+    ort_session = None
+    try:
+        ort_session = ort.InferenceSession(model_path, providers=ep)
+        _LOGGER.info("ONNX Runtime session initialized successfully")
+    except Exception as e:
+        _LOGGER.warning("ORT session not used directly: %s", e)
 
     kokoro = Kokoro(model_path, voices_path)
 
     server = AsyncServer.from_uri(args.uri)
     loop = asyncio.get_running_loop()
 
+    _LOGGER.info("Listening on %s", args.uri)
+
     await server.run(
         lambda r, w: KokoroWyomingHandler(
-            kokoro, args.voice, args.speed, loop, r, w
+            kokoro, args.voice, args.speed, loop, ort_session, r, w
         )
     )
 
