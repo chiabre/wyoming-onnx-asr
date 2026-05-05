@@ -5,29 +5,63 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 VENV_PYTHON="$PROJECT_ROOT/.venv/bin/python3"
 
-# Safety Check
+# ==========================================================
+# SAFETY CHECK
+# ==========================================================
 if [ ! -x "$VENV_PYTHON" ]; then
     echo "❌ Error: Virtual environment not found. Run setup first."
     exit 1
 fi
 
-# --- ONNX / PERFORMANCE SAFETY FLAGS ---
+# ==========================================================
+# HA OPTIMIZED DEFAULTS
+# ==========================================================
+# Only set if user didn't override
+DEFAULT_ENDPOINT_MS=500
+
+if [[ " $* " != *"--endpoint-ms"* ]]; then
+    EXTRA_ARGS+=(--endpoint-ms "$DEFAULT_ENDPOINT_MS")
+fi
+
+# ==========================================================
+# ONNX / CPU THREADING (LOW LATENCY MODE)
+# ==========================================================
 export OMP_NUM_THREADS=1
 export MKL_NUM_THREADS=1
 
-# --- ORT consistency with Python ORT_CONFIG ---
+# ORT consistency with Python config
 export ORT_LOGGING_LEVEL=3
 export ORT_DISABLE_THREAD_AFFINITY=1
 export ORT_NUM_THREADS=1
 
-# --- CUDA stability ---
+# ==========================================================
+# CUDA / GPU STABILITY
+# ==========================================================
 export CUDA_VISIBLE_DEVICES=0
 
-# --- HuggingFace / filesystem stability ---
+# Reduces startup latency + memory spikes
+export CUDA_MODULE_LOADING=LAZY
+
+# Optional: reduce contention with other GPU workloads (like Ollama)
+# Uncomment if you see latency spikes
+# export CUDA_DEVICE_MAX_CONNECTIONS=1
+
+# ==========================================================
+# HUGGINGFACE / FS STABILITY
+# ==========================================================
 export HF_HUB_DISABLE_SYMLINKS=1
 
+# ==========================================================
+# START
+# ==========================================================
 echo "🚀 Starting Wyoming ONNX ASR..."
 echo "📁 Project: $PROJECT_ROOT"
 
+echo "⚙️ Runtime config:"
+echo "   - Threads: $ORT_NUM_THREADS"
+echo "   - GPU: ${CUDA_VISIBLE_DEVICES:-CPU}"
+echo "   - Endpoint: ${DEFAULT_ENDPOINT_MS}ms (default if not overridden)"
+
 cd "$PROJECT_ROOT"
-exec "$VENV_PYTHON" wyoming_onnx_asr.py "$@"
+
+exec "$VENV_PYTHON" wyoming_onnx_asr.py "${EXTRA_ARGS[@]}" "$@"
