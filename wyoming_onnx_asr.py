@@ -32,7 +32,7 @@ from wyoming.info import AsrModel, AsrProgram, Info, Attribution
 from wyoming.server import AsyncEventHandler, AsyncServer
 
 # ==========================================================
-# LOGGING ARCHITECTURE (FIXED + STABLE)
+# LOGGING
 # ==========================================================
 LOG = logging.getLogger("asr")
 STREAM_LOG = logging.getLogger("asr.stream")
@@ -41,8 +41,12 @@ DEBUG_LOG = logging.getLogger("asr.debug")
 MAX_AUDIO_BYTES = 10 * 1024 * 1024
 EXPECTED_SAMPLE_RATE = 16000
 
+# Endpointing tuning (HA critical)
+DEFAULT_ENDPOINT_MS = 500  # silence threshold
+MIN_AUDIO_MS = 200         # ignore ultra short bursts
+
 # ==========================================================
-# MODEL REGISTRY (FULL RESTORE - NO LOSS)
+# MODEL REGISTRY
 # ==========================================================
 MODEL_REGISTRY = {
     "istupakov/parakeet-tdt-0.6b-v3-onnx": {
@@ -52,7 +56,6 @@ MODEL_REGISTRY = {
         "url": "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx",
         "languages": ["en", "de", "es", "fr", "it", "nl", "ru"],
         "version": "2025.8.0",
-        "notes": "Best overall: fast + multilingual"
     },
     "istupakov/parakeet-tdt-0.6b-v2-onnx": {
         "name": "Parakeet TDT 0.6B V2",
@@ -61,30 +64,19 @@ MODEL_REGISTRY = {
         "url": "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v2-onnx",
         "languages": ["en"],
         "version": "2025.2.0",
-        "notes": "Best for English-only setups"
     },
-    "istupakov/canary-1b-v2-onnx": {
-        "name": "Canary 1B V2",
-        "description": "High-accuracy multilingual Conformer-AED",
-        "attribution": "NVIDIA / istupakov",
-        "url": "https://huggingface.co/istupakov/canary-1b-v2-onnx",
-        "languages": ["en", "de", "es", "fr"],
-        "version": "2026.2.26",
-        "notes": "Best accuracy, slower than Parakeet"
-    }
 }
 
 MODEL_ALIASES = {
     "parakeet-v3": "istupakov/parakeet-tdt-0.6b-v3-onnx",
     "parakeet-v2": "istupakov/parakeet-tdt-0.6b-v2-onnx",
-    "canary": "istupakov/canary-1b-v2-onnx"
 }
 
 def resolve_model(m):
     return MODEL_ALIASES.get(m, m)
 
 # ==========================================================
-# TEXT EXTRACTION (SAFE FOR GENERATOR OUTPUT)
+# TEXT EXTRACTION
 # ==========================================================
 def extract_text(results):
     if results is None:
@@ -108,7 +100,10 @@ def extract_text(results):
 # ==========================================================
 class OnnxAsrEventHandler(AsyncEventHandler):
 
-    def __init__(self, model, reader, writer, model_id, debug=False, stream_debug=False):
+    def __init__(self, model, reader, writer, model_id,
+                 debug=False, stream_debug=False,
+                 endpoint_ms=DEFAULT_ENDPOINT_MS):
+
         super().__init__(reader, writer)
 
         self.model = model
@@ -120,6 +115,11 @@ class OnnxAsrEventHandler(AsyncEventHandler):
         self.audio_data = bytearray()
         self.sample_rate = EXPECTED_SAMPLE_RATE
         self.chunk_count = 0
+
+        self.start_time = None
+        self.last_audio_time = None
+
+        self.endpoint_ms = endpoint_ms
 
     def run_inference(self, audio):
         if audio is None or len(audio) == 0:
@@ -150,7 +150,7 @@ class OnnxAsrEventHandler(AsyncEventHandler):
                 description="Streaming ASR (ONNX)",
                 attribution=Attribution(name="system", url=""),
                 installed=True,
-                version="0.12.0",
+                version="0.13.0",
                 models=[model_info]
             )])
 
@@ -163,6 +163,9 @@ class OnnxAsrEventHandler(AsyncEventHandler):
             self.audio_data.clear()
             self.chunk_count = 0
 
+            self.start_time = time.perf_counter()
+            self.last_audio_time = self.start_time
+
             incoming_rate = getattr(event, "rate", None)
             self.sample_rate = incoming_rate or EXPECTED_SAMPLE_RATE
 
@@ -174,6 +177,9 @@ class OnnxAsrEventHandler(AsyncEventHandler):
         elif AudioChunk.is_type(event.type):
 
             chunk = AudioChunk.from_event(event)
+
+            now = time.perf_counter()
+            self.last_audio_time = now
 
             self.chunk_count += 1
             self.audio_data.extend(chunk.audio)
@@ -202,6 +208,12 @@ class OnnxAsrEventHandler(AsyncEventHandler):
 
             duration = len(audio) / self.sample_rate
 
+            if duration * 1000 < MIN_AUDIO_MS:
+                LOG.info("IGNORED SHORT AUDIO (%.2f ms)", duration * 1000)
+                await self.write_event(Transcript(text="").event())
+                self.audio_data.clear()
+                return True
+
             LOG.info("PROCESSING | %.2fs | chunks=%d", duration, self.chunk_count)
 
             try:
@@ -214,12 +226,12 @@ class OnnxAsrEventHandler(AsyncEventHandler):
                 text = extract_text(results)
 
                 LOG.info(
-                    "ASR RESULT | %.2fs | %s | %.3fs",
-                    duration, text, t1 - t0
+                    "ASR RESULT | %.2fs | %s | infer=%.3fs total=%.3fs",
+                    duration,
+                    text,
+                    t1 - t0,
+                    t1 - self.start_time if self.start_time else -1
                 )
-
-                if self.debug:
-                    DEBUG_LOG.debug("raw type=%s", type(results))
 
                 await self.write_event(Transcript(text=text).event())
 
@@ -238,7 +250,7 @@ class OnnxAsrEventHandler(AsyncEventHandler):
 async def main():
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model", default="parakeet-v3")
+    parser.add_argument("--model", default="parakeet-v2")
     parser.add_argument("--model-dir", default="/opt/wyoming-onnx-asr/data/models")
     parser.add_argument("--uri", default="tcp://0.0.0.0:10300")
     parser.add_argument("--cpu", action="store_true")
@@ -246,12 +258,11 @@ async def main():
     parser.add_argument("--stream-debug", action="store_true")
     parser.add_argument("--threads", type=int)
     parser.add_argument("--no-vad", action="store_true")
+    parser.add_argument("--endpoint-ms", type=int, default=DEFAULT_ENDPOINT_MS)
 
     args = parser.parse_args()
 
-    # ======================================================
-    # CLEAN LOGGING SETUP (FIXES MISSING "LISTENING ON")
-    # ======================================================
+    # Logging
     root = logging.getLogger()
     root.setLevel(logging.DEBUG if args.debug else logging.INFO)
 
@@ -268,9 +279,7 @@ async def main():
 
     model_id = resolve_model(args.model)
 
-    # ======================================================
-    # ONNX SESSION
-    # ======================================================
+    # ONNX
     sess_options = ort.SessionOptions()
     sess_options.log_severity_level = ORT_CONFIG["log_level"]
     sess_options.intra_op_num_threads = args.threads or ORT_CONFIG["num_threads"]
@@ -312,7 +321,8 @@ async def main():
         lambda r, w: OnnxAsrEventHandler(
             model, r, w, model_id,
             debug=args.debug,
-            stream_debug=args.stream_debug
+            stream_debug=args.stream_debug,
+            endpoint_ms=args.endpoint_ms
         )
     )
 
