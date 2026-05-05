@@ -23,30 +23,50 @@ User=$REAL_USER
 Group=$REAL_GROUP
 WorkingDirectory=$PROJECT_ROOT
 
-# --- GPU / CUDA visibility ---
+# ==========================================================
+# GPU / CUDA
+# ==========================================================
 Environment="LD_LIBRARY_PATH=/usr/local/cuda/lib64:/usr/lib/x86_64-linux-gnu"
 Environment="CUDA_VISIBLE_DEVICES=0"
+Environment="CUDA_MODULE_LOADING=LAZY"
 
-# --- Python stability ---
+# Optional: reduce GPU contention with Ollama (enable if needed)
+# Environment="CUDA_DEVICE_MAX_CONNECTIONS=1"
+
+# ==========================================================
+# PYTHON / THREADING (LOW LATENCY)
+# ==========================================================
 Environment="PYTHONUNBUFFERED=1"
 Environment="OMP_NUM_THREADS=1"
+Environment="MKL_NUM_THREADS=1"
 
-# --- ONNX Runtime tuning (mirrors ORT_CONFIG defaults) ---
+# ==========================================================
+# ONNX RUNTIME
+# ==========================================================
 Environment="ORT_LOGGING_LEVEL=3"
 Environment="ORT_DISABLE_THREAD_AFFINITY=1"
 Environment="ORT_NUM_THREADS=1"
 
-# --- OPTIONAL: override model here ---
-# Examples:
-# ExecStart=$PROJECT_ROOT/script/run --model parakeet-v3
-# ExecStart=$PROJECT_ROOT/script/run --model parakeet-v2
-# ExecStart=$PROJECT_ROOT/script/run --model canary
+# ==========================================================
+# EXECUTION
+# ==========================================================
+# Recommended profiles:
+# Fast (default HA UX)
+ExecStart=$PROJECT_ROOT/script/run --model parakeet-v2 --endpoint-ms 500
 
-ExecStart=$PROJECT_ROOT/script/run
+# Alternative:
+# Multilingual:
+# ExecStart=$PROJECT_ROOT/script/run --model parakeet-v3 --endpoint-ms 500
 
+# Debug:
+# ExecStart=$PROJECT_ROOT/script/run --model parakeet-v2 --debug
+
+# ==========================================================
+# RELIABILITY
+# ==========================================================
 Restart=always
-RestartSec=5
-TimeoutStopSec=30
+RestartSec=3
+TimeoutStopSec=20
 
 [Install]
 WantedBy=multi-user.target
