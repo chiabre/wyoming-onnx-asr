@@ -34,7 +34,7 @@ chmod +x script/setup
 ---
 
 ## 🧠 Model Selection
-The default model is `istupakov/parakeet-tdt-0.6b-v2-onnx`. To switch models, use the `--model` parameter with the "Model Repo ID" from the table below.
+The default model is `istupakov/parakeet-tdt-0.6b-v2-onnx`. To switch models, use the `--model` parameter with the "Alias" from the table below.
 
 ### ⚙️ Supported Models & Performance
 
