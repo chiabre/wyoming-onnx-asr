@@ -1,4 +1,4 @@
 wyoming==1.8.0
-numpy>=2.2.4
+numpy>=2.4.5
 onnx-asr[cpu,hub]>=0.11.0
 onnxruntime>=1.25.1
