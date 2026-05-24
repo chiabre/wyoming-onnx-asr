@@ -5,11 +5,10 @@ SERVICE_NAME="wyoming-onnx-asr"
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
-# Detect the actual user even if run with sudo
 REAL_USER=${SUDO_USER:-$(logname 2>/dev/null || echo $USER)}
 REAL_GROUP=$(id -gn "$REAL_USER")
 
-echo "🛠 Installing $SERVICE_NAME for user: $REAL_USER"
+echo "🛠 Installing $SERVICE_NAME..."
 
 sudo bash -c "cat > /etc/systemd/system/$SERVICE_NAME.service" <<EOF
 [Unit]
@@ -24,62 +23,33 @@ Group=$REAL_GROUP
 WorkingDirectory=$PROJECT_ROOT
 
 # ==========================================================
-# GPU / CUDA
+# THE ONE LOCATION FOR ALL ENVIRONMENT VARIABLES
 # ==========================================================
+# Libraries & Hardware
 Environment="LD_LIBRARY_PATH=/usr/local/cuda/lib64:/usr/lib/x86_64-linux-gnu"
 Environment="CUDA_VISIBLE_DEVICES=0"
 Environment="CUDA_MODULE_LOADING=LAZY"
 
-# Optional: reduce GPU contention with Ollama (enable if needed)
-# Environment="CUDA_DEVICE_MAX_CONNECTIONS=1"
-
-# ==========================================================
-# PYTHON / THREADING (LOW LATENCY)
-# ==========================================================
+# Low-Latency Execution & Thread Isolation
 Environment="PYTHONUNBUFFERED=1"
 Environment="OMP_NUM_THREADS=1"
 Environment="MKL_NUM_THREADS=1"
-
-# ==========================================================
-# ONNX RUNTIME
-# ==========================================================
 Environment="ORT_LOGGING_LEVEL=3"
 Environment="ORT_DISABLE_THREAD_AFFINITY=1"
 Environment="ORT_NUM_THREADS=1"
 
 # ==========================================================
-# EXECUTION
+# EXECUTION (Simple Parameter Controls)
 # ==========================================================
-# Recommended profiles:
-# Fast (default HA UX)
-ExecStart=$PROJECT_ROOT/script/run --model parakeet-v2 --endpoint-ms 500
-
-# Alternative:
-# Multilingual:
-# ExecStart=$PROJECT_ROOT/script/run --model parakeet-v3 --endpoint-ms 500
-
-# Debug:
-# ExecStart=$PROJECT_ROOT/script/run --model parakeet-v2 --debug
-
-# ==========================================================
-# RELIABILITY
-# ==========================================================
-Restart=always
-RestartSec=3
-TimeoutStopSec=20
+ExecStart=$PROJECT_ROOT/script/run --model istupakov/parakeet-tdt-0.6b-v2-onnx --uri tcp://0.0.0.0:10300
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-# Permissions + reload
 sudo chmod 644 "/etc/systemd/system/$SERVICE_NAME.service"
 sudo systemctl daemon-reload
 sudo systemctl enable "$SERVICE_NAME"
 sudo systemctl restart "$SERVICE_NAME"
 
-echo "-------------------------------------------------------"
-echo "✅ $SERVICE_NAME installed and started!"
-echo "Check status: sudo systemctl status $SERVICE_NAME"
-echo "View logs:    journalctl -u $SERVICE_NAME -f"
-echo "-------------------------------------------------------"
+echo "✅ Installed! Logs: journalctl -u $SERVICE_NAME -f"

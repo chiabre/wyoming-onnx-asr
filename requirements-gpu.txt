@@ -1,0 +1,12 @@
+--index-url https://aiinfra.pkgs.visualstudio.com/PublicPackages/_packaging/ort-cuda-13-nightly/pypi/simple/
+--extra-index-url https://pypi.org/simple
+
+wyoming==1.6.0
+onnx-asr==0.1.4
+numpy==1.26.4
+coloredlogs
+flatbuffers
+packaging
+protobuf
+sympy
+onnxruntime-gpu

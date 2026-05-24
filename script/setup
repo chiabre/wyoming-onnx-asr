@@ -1,32 +1,44 @@
 #!/usr/bin/env bash
 set -e
 
-echo "--- Wyoming ONNX ASR Environment Setup ---"
+echo "--- Wyoming ONNX ASR Environment Setup (CUDA 13 + CPU) ---"
 
 # --- System Info ---
 DISTRO=$(. /etc/os-release; echo "$ID")
 VERSION_ID=$(. /etc/os-release; echo "$VERSION_ID" | tr -d '.')
+ARCH="x86_64"
 
 echo "📦 Installing system dependencies..."
 sudo apt update
-# Notice we dropped gpg, keyring, and nvidia apt repos entirely
-sudo apt install -y libsndfile1 python3-venv wget curl
+sudo apt install -y libsndfile1 python3-venv wget gnupg2 curl
 
-# --- GPU Detection (Driver Check Only) ---
+# --- GPU Detection ---
 GPU_INSTALL=false
 
-if command -v nvidia-smi &> /dev/null; then
-    if nvidia-smi &> /dev/null; then
-        echo "🚀 NVIDIA GPU Detected via Driver!"
-        # Grab the maximum supported CUDA version from nvidia-smi
-        MAX_CUDA=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader | awk -F. '{if ($1 >= 550) print "13"; else print "12"}')
-        echo "💡 Driver supports CUDA ${MAX_CUDA} ecosystem."
-        GPU_INSTALL=true
-    fi
+if command -v nvidia-smi &> /dev/null && nvidia-smi &> /dev/null; then
+    echo "⚡ NVIDIA GPU detected. Provisioning CUDA 13 stack..."
+    
+    case "$DISTRO" in
+        debian) REPO_NAME="debian${VERSION_ID}" ;;
+        ubuntu) REPO_NAME="ubuntu${VERSION_ID}" ;;
+        *)
+            echo "❌ Unsupported distro: $DISTRO"
+            exit 1
+            ;;
+    esac
+
+    # Register NVIDIA repository
+    wget -q "https://developer.download.nvidia.com/compute/cuda/repos/${REPO_NAME}/${ARCH}/cuda-keyring_1.1-1_all.deb" -O cuda-keyring.deb
+    sudo dpkg -i cuda-keyring.deb
+    rm cuda-keyring.deb
+    
+    sudo apt update
+    sudo apt install -y cuda-toolkit-13-1 cudnn-cuda-13
+    GPU_INSTALL=true
 fi
 
 if [ "$GPU_INSTALL" = false ]; then
-    echo "🐌 No NVIDIA GPU driver active → CPU-only mode"
+    echo "🐌 No NVIDIA GPU detected → CPU-only mode"
 fi
 
 # --- Virtual Environment ---
@@ -39,36 +51,16 @@ python3 -m venv "$VENV_DIR"
 
 # shellcheck disable=SC1091
 source "$VENV_DIR/bin/activate"
-
 pip install --upgrade pip wheel setuptools
 
-# --- Install dependencies ---
+# --- Install Dependencies ---
 if [ "$GPU_INSTALL" = true ]; then
-    echo "⚙️ Installing GPU requirements..."
-    if [ "$MAX_CUDA" = "13" ]; then
-        echo "⚡ Using CUDA 13 Requirements Target"
-        pip install -r "$PROJECT_ROOT/requirements-gpu-cuda13.txt"
-    else
-        echo "⚡ Using CUDA 12 Requirements Target"
-        pip install -r "$PROJECT_ROOT/requirements-gpu-cuda13.txt"
-    fi
+    echo "⚙️ Installing GPU requirements (CUDA 13 Nightly)..."
+    pip install --pre -r "$PROJECT_ROOT/requirements-gpu.txt"
 else
     echo "⚙️ Installing CPU requirements..."
     pip install -r "$PROJECT_ROOT/requirements-cpu.txt"
 fi
-
-# --- Runtime consistency (Updated for modular execution) ---
-echo "🧠 Writing runtime environment defaults..."
-
-cat > "$PROJECT_ROOT/.env.runtime" <<EOF
-OMP_NUM_THREADS=1
-MKL_NUM_THREADS=1
-ORT_LOGGING_LEVEL=3
-ORT_DISABLE_THREAD_AFFINITY=1
-ORT_NUM_THREADS=1
-CUDA_VISIBLE_DEVICES=0
-HF_HUB_DISABLE_SYMLINKS=1
-EOF
 
 # --- Permissions ---
 chmod +x "$SCRIPT_DIR/run" 2>/dev/null || true
@@ -76,5 +68,5 @@ chmod +x "$SCRIPT_DIR/install-service" 2>/dev/null || true
 
 echo "--------------------------------------------------"
 echo "✅ Setup complete!"
-echo "👉 Run: ./script/run"
+echo "👉 Run your service installer to finish deployment."
 echo "--------------------------------------------------"
