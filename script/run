@@ -14,6 +14,27 @@ if [ ! -x "$VENV_PYTHON" ]; then
 fi
 
 # ==========================================================
+# DYNAMIC CUDA/CUDNN WHEEL PATH INJECTION (CUDA 12 & 13 Support)
+# ==========================================================
+# Find the exact python site-packages path inside this virtual environment
+PYTHON_VERSION=$("$VENV_PYTHON" -c 'import sys; print(f"python{sys.version_info.major}.{sys.version_info.minor}")')
+SITE_PACKAGES="$PROJECT_ROOT/.venv/lib/${PYTHON_VERSION}/site-packages"
+
+# 1. Discover CUDNN path (works for both nvidia_cudnn_cu12 and nvidia_cudnn_cu13)
+CUDNN_LIB_DIR=$(find "$SITE_PACKAGES/nvidia" -type d -path "*/cudnn/lib" 2>/dev/null | head -n 1)
+
+# 2. Discover CUDA Runtime path (works for both nvidia_cuda_runtime_cu12 and the new nvidia/cuda_runtime)
+CUDA_LIB_DIR=$(find "$SITE_PACKAGES/nvidia" -type d -path "*/cuda_runtime/lib" 2>/dev/null | head -n 1)
+
+# Inject discovered paths into LD_LIBRARY_PATH if they exist
+if [ -n "$CUDA_LIB_DIR" ] && [ -n "$CUDNN_LIB_DIR" ]; then
+    export LD_LIBRARY_PATH="$CUDA_LIB_DIR:$CUDNN_LIB_DIR:${LD_LIBRARY_PATH}"
+    DETECTED_GPU_ENV="Python Bundled Wheels"
+else
+    DETECTED_GPU_ENV="System / Fallback"
+fi
+
+# ==========================================================
 # HA OPTIMIZED DEFAULTS
 # ==========================================================
 # Only set if user didn't override
@@ -59,7 +80,7 @@ echo "📁 Project: $PROJECT_ROOT"
 
 echo "⚙️ Runtime config:"
 echo "   - Threads: $ORT_NUM_THREADS"
-echo "   - GPU: ${CUDA_VISIBLE_DEVICES:-CPU}"
+echo "   - GPU: ${CUDA_VISIBLE_DEVICES:-CPU} (${DETECTED_GPU_ENV})"
 echo "   - Endpoint: ${DEFAULT_ENDPOINT_MS}ms (default if not overridden)"
 
 cd "$PROJECT_ROOT"

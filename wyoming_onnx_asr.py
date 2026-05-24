@@ -3,6 +3,29 @@ import os
 import sys
 
 # ==========================================================
+# MULTI-VERSION DYNAMIC PATH INJECTION (CUDA 12 & 13 SUPPORT)
+# ==========================================================
+# Compute the internal site-packages path relative to this file's root directory
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+VENV_SITE = os.path.join(CURRENT_DIR, ".venv", "lib", f"python{sys.version_info.major}.{sys.version_info.minor}", "site-packages")
+
+# Resolve absolute pathing strings for python-embedded library directories
+CUDA_PATH = os.path.join(VENV_SITE, "nvidia", "cuda_runtime", "lib")
+CUDNN_PATH = os.path.join(VENV_SITE, "nvidia", "cudnn", "lib")
+
+# Inject directories into LD_LIBRARY_PATH if they are found within the active environment
+if os.path.isdir(CUDA_PATH) and os.path.isdir(CUDNN_PATH):
+    os.environ["LD_LIBRARY_PATH"] = f"{CUDA_PATH}:{CUDNN_PATH}:" + os.environ.get("LD_LIBRARY_PATH", "")
+
+# Proactively issue explicit internal preloads to smooth over modular execution provider splits
+try:
+    import onnxruntime as ort
+    if hasattr(ort, 'preload_dlls'):
+        ort.preload_dlls(cuda=True, cudnn=True, directory="")
+except Exception:
+    pass
+
+# ==========================================================
 # ONNX RUNTIME CONFIG
 # ==========================================================
 ORT_CONFIG = {
@@ -23,7 +46,6 @@ import logging
 import time
 import numpy as np
 import onnx_asr
-import onnxruntime as ort
 
 from wyoming.asr import Transcript
 from wyoming.audio import AudioChunk, AudioStart, AudioStop

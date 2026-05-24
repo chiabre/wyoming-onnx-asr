@@ -1,0 +1,8 @@
+--pre --index-url https://aiinfra.pkgs.visualstudio.com/PublicPackages/_packaging/ort-cuda-13-nightly/pypi/simple/
+onnxruntime-gpu
+--extra-index-url https://pypi.org/simple
+wyoming==1.9.0
+numpy>=2.4.6
+nvidia-cuda-runtime
+nvidia-cudnn-cu13
+onnx-asr[hub]>=0.11.0

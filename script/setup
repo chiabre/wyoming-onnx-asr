@@ -6,41 +6,27 @@ echo "--- Wyoming ONNX ASR Environment Setup ---"
 # --- System Info ---
 DISTRO=$(. /etc/os-release; echo "$ID")
 VERSION_ID=$(. /etc/os-release; echo "$VERSION_ID" | tr -d '.')
-ARCH="x86_64"
 
 echo "📦 Installing system dependencies..."
 sudo apt update
-sudo apt install -y libsndfile1 python3-venv wget gnupg2 curl
+# Notice we dropped gpg, keyring, and nvidia apt repos entirely
+sudo apt install -y libsndfile1 python3-venv wget curl
 
-# --- GPU Detection ---
+# --- GPU Detection (Driver Check Only) ---
 GPU_INSTALL=false
 
 if command -v nvidia-smi &> /dev/null; then
     if nvidia-smi &> /dev/null; then
-        echo "🚀 NVIDIA GPU detected. Installing CUDA 12.6..."
-
-        case "$DISTRO" in
-            debian) REPO_NAME="debian${VERSION_ID}" ;;
-            ubuntu) REPO_NAME="ubuntu${VERSION_ID}" ;;
-            *)
-                echo "❌ Unsupported distro: $DISTRO"
-                exit 1
-                ;;
-        esac
-
-        wget -q "https://developer.download.nvidia.com/compute/cuda/repos/${REPO_NAME}/${ARCH}/cuda-keyring_1.1-1_all.deb" -O cuda-keyring.deb
-        sudo dpkg -i cuda-keyring.deb
-        rm cuda-keyring.deb
-
-        sudo apt update
-        sudo apt install -y cuda-toolkit-12-6 cudnn9-cuda-12
-
+        echo "🚀 NVIDIA GPU Detected via Driver!"
+        # Grab the maximum supported CUDA version from nvidia-smi
+        MAX_CUDA=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader | awk -F. '{if ($1 >= 550) print "13"; else print "12"}')
+        echo "💡 Driver supports CUDA ${MAX_CUDA} ecosystem."
         GPU_INSTALL=true
     fi
 fi
 
 if [ "$GPU_INSTALL" = false ]; then
-    echo "🐌 No NVIDIA GPU detected → CPU-only mode"
+    echo "🐌 No NVIDIA GPU driver active → CPU-only mode"
 fi
 
 # --- Virtual Environment ---
@@ -59,13 +45,19 @@ pip install --upgrade pip wheel setuptools
 # --- Install dependencies ---
 if [ "$GPU_INSTALL" = true ]; then
     echo "⚙️ Installing GPU requirements..."
-    pip install -r "$PROJECT_ROOT/requirements-gpu.txt"
+    if [ "$MAX_CUDA" = "13" ]; then
+        echo "⚡ Using CUDA 13 Requirements Target"
+        pip install -r "$PROJECT_ROOT/requirements-gpu-cuda13.txt"
+    else
+        echo "⚡ Using CUDA 12 Requirements Target"
+        pip install -r "$PROJECT_ROOT/requirements-gpu-cuda13.txt"
+    fi
 else
     echo "⚙️ Installing CPU requirements..."
     pip install -r "$PROJECT_ROOT/requirements-cpu.txt"
 fi
 
-# --- Runtime consistency (IMPORTANT) ---
+# --- Runtime consistency (Updated for modular execution) ---
 echo "🧠 Writing runtime environment defaults..."
 
 cat > "$PROJECT_ROOT/.env.runtime" <<EOF
