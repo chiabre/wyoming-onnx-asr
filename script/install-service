@@ -34,14 +34,18 @@ Environment="CUDA_MODULE_LOADING=LAZY"
 Environment="PYTHONUNBUFFERED=1"
 Environment="OMP_NUM_THREADS=1"
 Environment="MKL_NUM_THREADS=1"
-Environment="ORT_LOGGING_LEVEL=3"
-Environment="ORT_DISABLE_THREAD_AFFINITY=1"
 Environment="ORT_NUM_THREADS=1"
 
+# Engine Noise Suppression (Silences E and W logs completely)
+Environment="ORT_LOGGING_LEVEL=4"
+Environment="ORT_DISABLE_INTRA_OP_THREAD_AFFINITY=1"
+
 # ==========================================================
-# EXECUTION (Simple Parameter Controls)
+# EXECUTION
 # ==========================================================
-ExecStart=$PROJECT_ROOT/script/run --model istupakov/parakeet-tdt-0.6b-v2-onnx --uri tcp://0.0.0.0:10300
+ExecStart=$PROJECT_ROOT/script/run --model istupakov/parakeet-tdt-0.6b-v3-onnx
+
+#ExecStart=$PROJECT_ROOT/script/run --model istupakov/parakeet-tdt-0.6b-v2-onnx --uri tcp://0.0.0.0:10300
 
 [Install]
 WantedBy=multi-user.target

@@ -4,14 +4,14 @@
 
 ---
 
-## ⚡ Hardware Selection
+## ⚡ Hardware 
 
-This repository is hardware-intelligent and distro-aware. During setup, it detects your OS (Debian/Ubuntu) and GPU status to automate CUDA & cuDNN installation.
+The setip script detects your OS (Debian/Ubuntu) and NVIDIA GPU and driver status to automate CUDA 13.1 & cuDNN 9 installation.
 
 | Feature | 🟢 GPU Mode (Recommended) | 🔵 CPU Mode |
 | :--- | :--- | :--- |
 | **Performance** | Near real-time (<100–300ms) | Fast (~500ms – 2s) |
-| **Requirements** | NVIDIA GPU (CUDA) | Any modern CPU |
+| **Requirements** | NVIDIA GPU + NVIDIA Driver>=580.65.06 | Any modern CPU |
 
 ---
 
@@ -34,17 +34,24 @@ chmod +x script/setup
 ---
 
 ## 🧠 Model Selection
-The default model is `istupakov/parakeet-tdt-0.6b-v2-onnx`. To switch models, use the `--model` parameter with the "Alias" from the table below.
+Models are dynamically downloaded directly from Hugging Face on first startup.
 
-### ⚙️ Supported Models & Performance
+The default model is `istupakov/parakeet-tdt-0.6b-v2-onnx`. To switch models, use the `--model` parameter.
 
-You can use short aliases instead of full Hugging Face IDs.
+### ⚙️ Supported Models 
 
-| Alias              | Model                                 | Best For               | Notes                       |
-| ------------------ | ------------------------------------- | ---------------------- | --------------------------- |
-| 🏆 `parakeet-v3`   | `istupakov/parakeet-tdt-0.6b-v3-onnx` | Default / multilingual | Fast + accurate             |
-| 🇺🇸 `parakeet-v2` | `istupakov/parakeet-tdt-0.6b-v2-onnx` | English-only           | Slightly better EN accuracy |
+| Target Language | Hugging Face Repository ID (Use this for `--model`) | Purpose / Strengths |
+| :--- | :--- | :--- |
+| 🌐 **Multilingual** | `istupakov/parakeet-tdt-0.6b-v3-onnx` | Outstanding accuracy across 25 languages. Uses the modern Token-and-Duration Transducer structure. |
+| 🇺🇸 **English Only** | `istupakov/parakeet-tdt-0.6b-v2-onnx` | Legacy English flagship. Superior accuracy if your smart home interactions are strictly in English. |
+| 🇷🇺 **Russian** | `istupakov/gigaam-v3-onnx` | Sber GigaAM v3 foundation model. Exceptional tracking for Russian language voice intents. |
 
+---
+
+### 🔗 Full Ecosystem Directory
+For the complete list of available variants (including FastConformer, Whisper exports, and specific Russian CTC/RNNT decoders), you can view the upstream model repository directly on the Hugging Face Hub:
+
+👉 **[Browse All Available ONNX ASR Models on Hugging Face](https://huggingface.co/istupakov)**
 ---
 
 ## 🚀 Running the Service
@@ -58,19 +65,22 @@ You can use short aliases instead of full Hugging Face IDs.
 ### Examples
 
 ```bash
-# Default (recommended)
-./script/run --model parakeet-v3
+# Run v3 Multilingual Model
+./script/run --model istupakov/parakeet-tdt-0.6b-v3-onnx
 
-# English optimized
-./script/run --model parakeet-v2
+# Run with custom local directory mapping
+./script/run --model-dir data/models
 
-# Force CPU
+# Run with custom environment overrides for threading & log silencing
+ORT_NUM_THREADS=2 ORT_LOGGING_LEVEL=4 ./script/run --model istupakov/parakeet-tdt-0.6b-v3-onnx
+
+# Force CPU Execution Provider
 ./script/run --cpu
 
-# Debug mode
-./script/run --debug
+# Explicitly disable Voice Activity Detection (VAD) parsing
+./script/run --no-vad
 
-# Custom port
+# Custom Binding Port
 ./script/run --uri tcp://0.0.0.0:10305
 ```
 
@@ -80,35 +90,24 @@ You can use short aliases instead of full Hugging Face IDs.
 
 These parameters allow you to configure the Wyoming ONNX ASR server. You can pass them as command-line arguments when starting the service.
 
-| Parameter         | Type     | Default               | Description                    |
-| :---------------- | :------- | :-------------------- | :----------------------------- |
-| `--model`         | Optional | `parakeet-v3`         | Model alias or full HF repo ID |
-| `--model-dir`     | Optional | `data/models`         | Model storage directory        |
-| `--uri`           | Optional | `tcp://0.0.0.0:10300` | Wyoming server address         |
-| `--cpu`           | Flag     | `False`               | Force CPU inference            |
-| `--debug`         | Flag     | `False`               | Enable verbose logging         |
-| `--threads`       | Optional | `1`                   | Override ONNX thread count     |
-| `--ort-log-level` | Optional | `3`                   | ONNX logging level (0–4)       |
-| `--endpoint-ms`   | Optional | `500`               | Silence threshold (ms) for end-of-speech detection |
+| Parameter         | Type     | Default                                       | Description                    |
+| :---------------- | :------- | :-------------------------------------------- | :----------------------------- |
+| `--model`         | Optional | `istupakov/parakeet-tdt-0.6b-v2-onnx`         | Model alias or full HF repo ID |
+| `--model-dir`     | Optional | `data/models`                                 | Model storage directory        |
+| `--uri`           | Optional | `tcp://0.0.0.0:10300`                         | Wyoming server address         |
+| `--cpu`           | Flag     | `False`                                       | Force CPU inference            |
+| `--no-vad`        | Flag     | `False`                                       | Force CPU inference            |
+| `--debug`         | Flag     | `False`                                       | Enable verbose logging         |
 
+### Centralized Environment Tuning
+To control internal ONNX Runtime concurrency allocations safely without compilation flags (vital for preventing CPU thread contention inside Proxmox LXC containers), expose these environment parameters to the process:
+
+| Environment Variable | Default | Valid Range  | Functional Context                                                                                                                   |
+| :------------------- | :------ | :----------- | :----------------------------------------------------------------------------------------------------------------------------------- |
+| `ORT_NUM_THREADS`    | 1       | Integer (1+) | Maps absolute execution limits for intra_op and inter_op thread pools (Monkey-patched across both ASR and Silero VAD session states).|
+| `ORT_LOGGING_LEVEL`  | 4       | 0 to 4       | Maps internal ORT logging severity (0 = Verbose, 4 = Silent). Keeps systemd journals clean.                                          |
 ---
 
-## 🧠 ONNX Runtime Tuning
-This version uses a centralized runtime configuration for:
-- Threading
-- Logging
-- Execution mode
-
-### Examples
-
-```bash
-# Increase CPU parallelism
-./script/run --threads 2
-
-# Silence ONNX logs
-./script/run --ort-log-level 4
-```
----
 
 ## 🧩 Systemd Deployment
 To run this as a persistent background service that starts with your machine:
@@ -117,16 +116,26 @@ To run this as a persistent background service that starts with your machine:
 ./script/install-service
 ```
 
-To change the model:
+To switch models or tune processing footprints under systemd control, modify the runtime unit directly:
 
 ```bash
 nano /etc/systemd/system/wyoming-onnx-asr.service
 ```
 
-Update:
+Ensure your service profile explicitly contains the targeted environment overrides and execution parameters:
 
 ```bash
---model parakeet-v3
+[Service]
+Type=simple
+User=luca
+Group=luca
+WorkingDirectory=/opt/wyoming-onnx-asr
+Environment="ORT_NUM_THREADS=1"
+Environment="ORT_LOGGING_LEVEL=4"
+ExecStart=/opt/wyoming-onnx-asr/.venv/bin/python3 wyoming_onnx_asr.py \
+  --model istupakov/parakeet-tdt-0.6b-v3-onnx \
+  --model-dir data/models \
+  --uri tcp://0.0.0.0:10300
 ```
 Then:
 ```bash
@@ -149,25 +158,15 @@ systemctl restart wyoming-onnx-asr
 ```
 ---
 
-## 🧠 Notes
+## 🧠 Operational Notes
 
-### Model Selection
-- Use `parakeet-v3` for best overall performance
-- Use `parakeet-v2` for English-only setups (fastest UX)
+### Cache Deletion Fallback Behaviour
+If you manually wipe your local storage directory mapping (`data/models`), the code structure fallback layer redirects parsing execution arguments down to the default Hugging Face global storage contexts (`~/.cache/huggingface/hub`). 
+* While **v2** can execute out of that shared global space natively because its weights are baked completely flat inside a single standalone `.onnx` binary file, **v3 will fail initialization** under recent ONNX runtimes unless kept inside our isolated, un-symlinked local folder layout.
 
-### Home Assistant Optimization
-- Tune `--endpoint-ms` to reduce response latency:
-  - `300–500ms` → faster responses (recommended)
-  - `600–800ms` → more stable for noisy environments
-
-- Lower values = faster assistant response, but may cut speech early
-- Higher values = safer detection, but adds delay
-
-### Performance Tips
-- GPU strongly recommended for real-time performance
-- Keep `--threads` low (1–2) to avoid contention in LXC environments
-- Avoid running STT and LLM heavy workloads on the same GPU without testing latency
+### Performance Tuning Tips
+* **LXC Resource Sharing:** Always match `ORT_NUM_THREADS` precisely to your container core quota maps. Leaving thread-spinning unchecked can lead to thread starvation loops across neighboring virtualization stacks.
+* **Co-Location Bounds:** If running high-intensity Local LLM inference pools (e.g., Ollama running large Qwen profiles) concurrently with this service on a single GPU (like an RTX 3060 12GB), keep thread ceilings low to avoid scheduling collisions.
 
 ### Pipeline Reality (Important)
-- Home Assistant voice pipelines are not fully streaming
-- End-of-speech detection (`--endpoint-ms`) has more impact than raw model speed
+* Home Assistant voice pipelines are not fully streaming. End-of-speech detection optimization in your voice pipeline assistant configurations often has a more dramatic impact on perceived system latency than raw hardware inference speed.

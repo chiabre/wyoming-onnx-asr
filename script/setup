@@ -10,7 +10,7 @@ ARCH="x86_64"
 
 echo "📦 Installing system dependencies..."
 sudo apt update
-sudo apt install -y libsndfile1 python3-venv wget gnupg2 curl
+sudo apt install -y libsndfile1 python3-venv python3-dev build-essential wget gnupg2 curl
 
 # --- GPU Detection ---
 GPU_INSTALL=false
@@ -33,7 +33,7 @@ if command -v nvidia-smi &> /dev/null && nvidia-smi &> /dev/null; then
     rm cuda-keyring.deb
     
     sudo apt update
-    sudo apt install -y cuda-toolkit-13-1 cudnn-cuda-13
+    sudo apt install -y cuda-toolkit-13-1 cudnn9-cuda-13
     GPU_INSTALL=true
 fi
 
